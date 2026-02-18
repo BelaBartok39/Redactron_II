@@ -56,8 +56,6 @@ body {
 
 /* ========== App Layout ========== */
 .app-layout {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
   min-height: 100vh;
 }
 
@@ -65,6 +63,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  margin-left: var(--sidebar-width);
 }
 
 /* ========== Sidebar ========== */
@@ -760,8 +759,8 @@ select.form-input {
 
 /* ========== Responsive ========== */
 @media (max-width: 768px) {
-  .app-layout {
-    grid-template-columns: 1fr;
+  .main-area {
+    margin-left: 0;
   }
 
   .sidebar {
