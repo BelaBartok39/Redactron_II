@@ -67,7 +67,7 @@ export default function DashboardPage() {
     const interval = setInterval(async () => {
       try {
         const batch = await api.getBatch(activeBatchId);
-        if (batch.status === 'complete' || batch.status === 'error') {
+        if (batch.status === 'completed' || batch.status === 'error') {
           setActiveBatchId(null);
           setScanning(false);
           loadData();

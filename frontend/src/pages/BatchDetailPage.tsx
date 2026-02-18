@@ -84,7 +84,7 @@ export default function BatchDetailPage() {
 
   const statusClass = (() => {
     switch (batch.status) {
-      case 'complete': return 'badge badge-complete';
+      case 'completed': return 'badge badge-complete';
       case 'processing': return 'badge badge-processing';
       case 'error': return 'badge badge-error';
       default: return 'badge badge-pending';

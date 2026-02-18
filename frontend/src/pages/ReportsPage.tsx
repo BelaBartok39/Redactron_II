@@ -51,7 +51,7 @@ export default function ReportsPage() {
   if (loading) return <div className="loading">Loading reports...</div>;
   if (error) return <div className="error-message">{error}</div>;
 
-  const completedBatches = batches.filter((b) => b.status === 'complete');
+  const completedBatches = batches.filter((b) => b.status === 'completed');
 
   return (
     <div>

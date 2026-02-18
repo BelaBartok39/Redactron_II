@@ -6,7 +6,7 @@ type SortKey = 'filename' | 'page_count' | 'finding_count' | 'status';
 
 function statusBadgeClass(status: string): string {
   switch (status) {
-    case 'complete': return 'badge badge-complete';
+    case 'completed': return 'badge badge-complete';
     case 'processing': return 'badge badge-processing';
     case 'error': return 'badge badge-error';
     default: return 'badge badge-pending';
