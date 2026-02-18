@@ -9,14 +9,18 @@ from __future__ import annotations
 
 import multiprocessing
 import sys
+
+# CRITICAL: Must be called before any heavy imports for PyInstaller on Windows.
+# When multiprocessing spawns a child process in a frozen exe, the child
+# re-executes this entry point. freeze_support() detects child processes
+# and runs the worker code, preventing them from starting another server.
+multiprocessing.freeze_support()
+
 import threading
 import time
 import webbrowser
 
 import uvicorn
-
-from backend.core.config import settings
-from backend.core.database import db
 
 
 def open_browser(url: str, delay: float = 1.5) -> None:
@@ -28,8 +32,10 @@ def open_browser(url: str, delay: float = 1.5) -> None:
 
 
 def main() -> None:
-    # Required for PyInstaller on Windows — prevents infinite process spawn
-    multiprocessing.freeze_support()
+    # Lazy-import backend modules so worker child processes (handled by
+    # freeze_support above) never execute this code path.
+    from backend.core.config import settings
+    from backend.core.database import db
 
     # Ensure data directories exist
     settings.ensure_dirs()

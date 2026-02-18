@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
+import spacy
 from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
+from presidio_analyzer.nlp_engine import SpacyNlpEngine
 
 from backend.core.config import settings
 from backend.processing.recognizers.legal_pii import (
@@ -56,15 +60,51 @@ CUSTOM_RECOGNIZERS = [
 ]
 
 
+def _load_spacy_model():
+    """Load the spaCy NER model.
+
+    In frozen (PyInstaller) mode, loads by path from the bundled data
+    directory.  This avoids Presidio's fallback which tries to run
+    ``pip install`` via ``sys.executable`` — which in a frozen app
+    re-launches the entire exe instead of pip.
+    """
+    if getattr(sys, "frozen", False):
+        bundle_dir = Path(sys._MEIPASS)
+        model_base = bundle_dir / "en_core_web_lg"
+        if model_base.is_dir():
+            # Find the versioned subdirectory (e.g. en_core_web_lg-3.8.0)
+            for subdir in sorted(model_base.iterdir(), reverse=True):
+                if subdir.is_dir() and subdir.name.startswith("en_core_web_lg"):
+                    logger.info("Loading spaCy model from bundle: %s", subdir)
+                    return spacy.load(str(subdir))
+        raise RuntimeError(
+            "Bundled spaCy model 'en_core_web_lg' not found in frozen app"
+        )
+    return spacy.load("en_core_web_lg")
+
+
 def build_analyzer() -> AnalyzerEngine:
-    """Create a Presidio AnalyzerEngine with built-in + custom recognizers."""
+    """Create a Presidio AnalyzerEngine with built-in + custom recognizers.
+
+    Pre-loads the spaCy model and injects it into the NLP engine so
+    Presidio never attempts to download it at runtime.
+    """
+    nlp = _load_spacy_model()
+
+    # Build a SpacyNlpEngine with the pre-loaded model so Presidio
+    # skips its own load/download logic.
+    nlp_engine = SpacyNlpEngine(
+        models=[{"lang_code": "en", "model_name": "en_core_web_lg"}],
+    )
+    nlp_engine.nlp["en"] = nlp
+
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers()
 
     for recognizer_cls in CUSTOM_RECOGNIZERS:
         registry.add_recognizer(recognizer_cls())
 
-    analyzer = AnalyzerEngine(registry=registry)
+    analyzer = AnalyzerEngine(nlp_engine=nlp_engine, registry=registry)
     return analyzer
 
 

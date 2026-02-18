@@ -17,6 +17,9 @@ router = APIRouter(prefix="/api", tags=["batches"])
 
 def _start_batch_processing(batch_id: str) -> None:
     """Trigger batch processing in background. Imports lazily to avoid circular deps."""
+    import logging
+
+    log = logging.getLogger(__name__)
     try:
         from backend.processing.batch_manager import start_batch
 
@@ -24,6 +27,17 @@ def _start_batch_processing(batch_id: str) -> None:
     except ImportError:
         # Processing engine not yet available; batch stays in 'pending'
         pass
+    except Exception:
+        log.exception("Batch processing failed for %s", batch_id)
+        # Mark batch as error so the UI doesn't show "Scanning..." forever
+        try:
+            with db.transaction() as conn:
+                conn.execute(
+                    "UPDATE batches SET status = 'error' WHERE id = ?",
+                    (batch_id,),
+                )
+        except Exception:
+            log.exception("Failed to mark batch %s as error", batch_id)
 
 
 @router.post("/scan", response_model=BatchSummary)

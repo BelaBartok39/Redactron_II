@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import multiprocessing as mp
+import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,11 +30,18 @@ class WorkerResult:
     error: str | None = None
 
 
+# Thread-local storage for caching the Presidio analyzer per thread.
+# Avoids rebuilding the spaCy model for every document in threaded mode.
+_thread_local = threading.local()
+
+
 def _worker_process_document(args: tuple[str, str]) -> WorkerResult:
-    """Process a single document in a worker process.
+    """Process a single document in a worker process or thread.
 
     Each worker creates its own Presidio AnalyzerEngine to avoid
-    pickling issues with multiprocessing.
+    pickling issues with multiprocessing.  In threaded mode, the
+    analyzer is cached per-thread to avoid reloading spaCy for
+    every document.
     """
     doc_id, doc_path_str = args
     doc_path = Path(doc_path_str)
@@ -41,7 +50,11 @@ def _worker_process_document(args: tuple[str, str]) -> WorkerResult:
         from backend.processing.detector import build_analyzer
         from backend.processing.pipeline import process_document, get_page_count
 
-        analyzer = build_analyzer()
+        # Cache analyzer per thread (helps in ThreadPoolExecutor mode)
+        analyzer = getattr(_thread_local, "analyzer", None)
+        if analyzer is None:
+            analyzer = build_analyzer()
+            _thread_local.analyzer = analyzer
         page_count = get_page_count(doc_path)
         findings = process_document(doc_path, doc_id, analyzer=analyzer)
 
@@ -87,6 +100,10 @@ class WorkerPool:
     ) -> list[WorkerResult]:
         """Process a list of (doc_id, doc_path) tuples in parallel.
 
+        In frozen mode (PyInstaller), uses ThreadPoolExecutor to avoid
+        multiprocessing spawn issues on Windows. OCR subprocess calls
+        release the GIL, so threading is efficient for this workload.
+
         Args:
             doc_items: List of (document_id, file_path_string) tuples.
             on_result: Optional callback called with each WorkerResult as it completes.
@@ -97,12 +114,12 @@ class WorkerPool:
         if not doc_items:
             return []
 
+        if getattr(sys, "frozen", False):
+            return self._process_batch_threaded(doc_items, on_result=on_result)
+
         results: list[WorkerResult] = []
 
-        # Use spawn context for cross-platform safety
-        ctx = mp.get_context("spawn")
-
-        pool = ctx.Pool(processes=self.worker_count)
+        pool = mp.Pool(processes=self.worker_count)
         with _pool_lock:
             _active_pools.add(pool)
         try:
@@ -115,6 +132,33 @@ class WorkerPool:
             pool.join()
             with _pool_lock:
                 _active_pools.discard(pool)
+
+        return results
+
+    def _process_batch_threaded(
+        self,
+        doc_items: list[tuple[str, str]],
+        on_result: callable | None = None,
+    ) -> list[WorkerResult]:
+        """Process documents using threads (for frozen/PyInstaller mode).
+
+        Avoids multiprocessing spawn issues while still providing parallelism.
+        Tesseract OCR runs as a subprocess (releases GIL), so threads give
+        good throughput for scanned documents.
+        """
+        results: list[WorkerResult] = []
+        logger.info("Frozen mode: using thread pool (%d workers)", self.worker_count)
+
+        with ThreadPoolExecutor(max_workers=self.worker_count) as executor:
+            futures = {
+                executor.submit(_worker_process_document, item): item
+                for item in doc_items
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+                if on_result:
+                    on_result(result)
 
         return results
 

@@ -64,27 +64,11 @@ def build_executable() -> None:
     entry = ROOT / "run.py"
     sep = os.pathsep  # ';' on Windows, ':' on Linux
 
-    # Exclude spaCy tests and unnecessary language data to keep build fast/small
+    # Exclude tests and packages not needed at runtime.
+    # NOTE: spacy.lang.* modules must NOT be excluded — spaCy's registry
+    # initialization imports all of them, even when only English is used.
     excludes = [
         "spacy.tests",
-        "spacy.lang.af", "spacy.lang.am", "spacy.lang.ar", "spacy.lang.az",
-        "spacy.lang.bg", "spacy.lang.bn", "spacy.lang.ca", "spacy.lang.cs",
-        "spacy.lang.cy", "spacy.lang.da", "spacy.lang.de", "spacy.lang.dsb",
-        "spacy.lang.el", "spacy.lang.es", "spacy.lang.et", "spacy.lang.eu",
-        "spacy.lang.fa", "spacy.lang.fi", "spacy.lang.fo", "spacy.lang.fr",
-        "spacy.lang.ga", "spacy.lang.grc", "spacy.lang.gu", "spacy.lang.he",
-        "spacy.lang.hi", "spacy.lang.hr", "spacy.lang.hsb", "spacy.lang.hu",
-        "spacy.lang.hy", "spacy.lang.id", "spacy.lang.is", "spacy.lang.it",
-        "spacy.lang.ja", "spacy.lang.kn", "spacy.lang.ko", "spacy.lang.la",
-        "spacy.lang.lb", "spacy.lang.lt", "spacy.lang.lv", "spacy.lang.mk",
-        "spacy.lang.ml", "spacy.lang.mr", "spacy.lang.nb", "spacy.lang.ne",
-        "spacy.lang.nl", "spacy.lang.nn", "spacy.lang.pl", "spacy.lang.pt",
-        "spacy.lang.ro", "spacy.lang.ru", "spacy.lang.sa", "spacy.lang.si",
-        "spacy.lang.sk", "spacy.lang.sl", "spacy.lang.sq", "spacy.lang.sr",
-        "spacy.lang.sv", "spacy.lang.ta", "spacy.lang.te", "spacy.lang.th",
-        "spacy.lang.ti", "spacy.lang.tl", "spacy.lang.tn", "spacy.lang.tr",
-        "spacy.lang.tt", "spacy.lang.uk", "spacy.lang.ur", "spacy.lang.vi",
-        "spacy.lang.yo", "spacy.lang.zh",
         "thinc.tests",
         "pydantic.deprecated",
         # Not needed at runtime
