@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import platform
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +13,25 @@ import fitz  # PyMuPDF
 from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _configure_tesseract_frozen() -> None:
+    """Point pytesseract at the bundled Tesseract binary in frozen (PyInstaller) mode."""
+    if not getattr(sys, "frozen", False):
+        return
+
+    import pytesseract
+
+    bundle_dir = Path(sys._MEIPASS)
+    exe_name = "tesseract.exe" if platform.system() == "Windows" else "tesseract"
+    bundled = bundle_dir / "tesseract" / exe_name
+
+    if bundled.is_file():
+        pytesseract.pytesseract.tesseract_cmd = str(bundled)
+        logger.info("Using bundled Tesseract: %s", bundled)
+
+
+_configure_tesseract_frozen()
 
 
 @dataclass

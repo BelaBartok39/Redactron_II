@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
-"""Cross-platform build script using PyInstaller."""
+"""Cross-platform build script using PyInstaller.
+
+Bundles the full RedactQC application including:
+- Frontend dist (React build)
+- spaCy model (en_core_web_lg)
+- Presidio analyzer configs
+- Tesseract OCR binary (if found on build machine)
+- All required hidden imports for frozen execution
+"""
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -22,6 +31,25 @@ def build_frontend() -> None:
     print("Frontend built successfully.")
 
 
+def find_tesseract() -> Path | None:
+    """Locate the Tesseract OCR installation directory."""
+    if platform.system() == "Windows":
+        candidates = [
+            Path(r"C:\Program Files\Tesseract-OCR"),
+            Path(r"C:\Program Files (x86)\Tesseract-OCR"),
+        ]
+        for p in candidates:
+            if (p / "tesseract.exe").is_file():
+                return p
+    else:
+        # Linux/macOS — find the binary, then bundle its directory
+        result = shutil.which("tesseract")
+        if result:
+            return Path(result).resolve().parent
+
+    return None
+
+
 def build_executable() -> None:
     """Build the Python executable with PyInstaller."""
     print("=== Building executable ===")
@@ -31,8 +59,8 @@ def build_executable() -> None:
         print("ERROR: frontend/dist not found. Run build_frontend() first.")
         sys.exit(1)
 
-    # PyInstaller spec
     entry = ROOT / "run.py"
+    sep = os.pathsep  # ';' on Windows, ':' on Linux
 
     cmd = [
         sys.executable,
@@ -43,25 +71,150 @@ def build_executable() -> None:
         f"--distpath={DIST}",
         "--noconfirm",
         "--clean",
-        # Add frontend dist as data
-        f"--add-data={frontend_dist}{os.pathsep}frontend/dist",
-        # Add backend package
-        f"--add-data={BACKEND}{os.pathsep}backend",
-        # Hidden imports
+        # ── Frontend ──────────────────────────────────────────────────────
+        f"--add-data={frontend_dist}{sep}frontend/dist",
+        # ── Backend package ───────────────────────────────────────────────
+        f"--add-data={BACKEND}{sep}backend",
+        # ── spaCy model + core ────────────────────────────────────────────
+        "--collect-data=en_core_web_lg",
+        "--collect-all=spacy",
+        "--collect-all=thinc",
+        "--hidden-import=en_core_web_lg",
+        # spaCy C-extension dependencies
+        "--hidden-import=cymem",
+        "--hidden-import=cymem.cymem",
+        "--hidden-import=preshed",
+        "--hidden-import=preshed.maps",
+        "--hidden-import=murmurhash",
+        "--hidden-import=murmurhash.mrmr",
+        "--hidden-import=blis",
+        "--hidden-import=blis.py",
+        "--hidden-import=srsly",
+        "--hidden-import=srsly.msgpack",
+        "--hidden-import=catalogue",
+        "--hidden-import=confection",
+        "--hidden-import=thinc.backends.numpy_ops",
+        # ── Presidio ─────────────────────────────────────────────────────
+        "--collect-data=presidio_analyzer",
+        "--hidden-import=presidio_analyzer",
+        "--hidden-import=presidio_anonymizer",
+        # ── Pydantic (FastAPI dependency) ─────────────────────────────────
+        "--collect-all=pydantic",
+        "--hidden-import=pydantic",
+        # ── ReportLab ─────────────────────────────────────────────────────
+        "--collect-data=reportlab",
+        # ── Uvicorn ───────────────────────────────────────────────────────
         "--hidden-import=uvicorn",
         "--hidden-import=uvicorn.logging",
         "--hidden-import=uvicorn.protocols",
         "--hidden-import=uvicorn.protocols.http",
         "--hidden-import=uvicorn.protocols.http.auto",
+        "--hidden-import=uvicorn.protocols.http.h11_impl",
+        "--hidden-import=uvicorn.protocols.http.httptools_impl",
         "--hidden-import=uvicorn.protocols.websockets",
         "--hidden-import=uvicorn.protocols.websockets.auto",
+        "--hidden-import=uvicorn.protocols.websockets.wsproto_impl",
         "--hidden-import=uvicorn.lifespan",
         "--hidden-import=uvicorn.lifespan.on",
-        str(entry),
+        "--hidden-import=uvicorn.lifespan.off",
+        # ── FastAPI + Starlette ───────────────────────────────────────────
+        "--hidden-import=fastapi",
+        "--hidden-import=starlette",
+        "--hidden-import=starlette.responses",
+        "--hidden-import=starlette.routing",
+        "--hidden-import=starlette.middleware",
+        "--hidden-import=starlette.middleware.cors",
+        # ── Multiprocessing (Windows spawn) ───────────────────────────────
+        "--hidden-import=multiprocessing",
+        "--hidden-import=multiprocessing.pool",
+        "--hidden-import=multiprocessing.process",
+        "--hidden-import=multiprocessing.spawn",
+        "--hidden-import=multiprocessing.popen_spawn_win32",
+        "--hidden-import=multiprocessing.popen_spawn_posix",
+        "--hidden-import=multiprocessing.reduction",
+        # ── OCR dependencies ──────────────────────────────────────────────
+        "--hidden-import=pytesseract",
+        "--hidden-import=PIL",
+        "--hidden-import=PIL.Image",
+        # ── PDF handling ──────────────────────────────────────────────────
+        "--hidden-import=fitz",
     ]
 
+    # ── Bundle Tesseract OCR if found ─────────────────────────────────────
+    tesseract_dir = find_tesseract()
+    if tesseract_dir:
+        print(f"Bundling Tesseract from: {tesseract_dir}")
+        cmd.append(f"--add-data={tesseract_dir}{sep}tesseract")
+    else:
+        print("WARNING: Tesseract not found on build machine — OCR will require separate install")
+
+    cmd.append(str(entry))
     subprocess.run(cmd, check=True)
     print(f"Executable built at: {DIST / 'RedactQC'}")
+
+
+def verify_build() -> bool:
+    """Check the build output contains critical files."""
+    print("\n=== Verifying build ===")
+    build_dir = DIST / "RedactQC"
+
+    if not build_dir.is_dir():
+        print("ERROR: Build directory not found")
+        return False
+
+    exe_name = "RedactQC.exe" if platform.system() == "Windows" else "RedactQC"
+    checks = {
+        "Executable": build_dir / exe_name,
+        "Frontend": build_dir / "frontend" / "dist" / "index.html",
+    }
+
+    # Check for spaCy model data (nested under _internal on some PyInstaller versions)
+    spacy_found = False
+    for search_dir in [build_dir, build_dir / "_internal"]:
+        if list(search_dir.rglob("en_core_web_lg/meta.json")):
+            spacy_found = True
+            break
+
+    # Check for Presidio config
+    presidio_found = False
+    for search_dir in [build_dir, build_dir / "_internal"]:
+        if list(search_dir.rglob("presidio_analyzer/conf*")):
+            presidio_found = True
+            break
+
+    all_ok = True
+    for name, path in checks.items():
+        if path.exists():
+            print(f"  [OK] {name}: {path.relative_to(build_dir)}")
+        else:
+            print(f"  [MISSING] {name}: expected at {path.relative_to(build_dir)}")
+            all_ok = False
+
+    if spacy_found:
+        print("  [OK] spaCy model (en_core_web_lg)")
+    else:
+        print("  [MISSING] spaCy model (en_core_web_lg) — PII detection will fail")
+        all_ok = False
+
+    if presidio_found:
+        print("  [OK] Presidio analyzer config")
+    else:
+        print("  [MISSING] Presidio analyzer config — PII detection may fail")
+        all_ok = False
+
+    # Check for bundled Tesseract
+    tesseract_exe = "tesseract.exe" if platform.system() == "Windows" else "tesseract"
+    tesseract_bundled = list(build_dir.rglob(f"tesseract/{tesseract_exe}"))
+    if tesseract_bundled:
+        print(f"  [OK] Tesseract OCR bundled")
+    else:
+        print("  [INFO] Tesseract OCR not bundled — OCR requires separate install")
+
+    # Report size
+    total_size = sum(f.stat().st_size for f in build_dir.rglob("*") if f.is_file())
+    print(f"\n  Total build size: {total_size / (1024 * 1024):.0f} MB")
+
+    return all_ok
 
 
 def main() -> None:
@@ -75,12 +228,19 @@ def main() -> None:
         build_frontend()
     elif "exe" in args:
         build_executable()
+        verify_build()
+    elif "verify" in args:
+        verify_build()
     else:
         build_frontend()
         build_executable()
+        if verify_build():
+            print("\nBuild complete! Run dist/RedactQC/RedactQC to test.")
+        else:
+            print("\nBuild completed with warnings — check missing items above.")
+            sys.exit(1)
 
     print()
-    print("Build complete!")
 
 
 if __name__ == "__main__":

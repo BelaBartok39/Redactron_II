@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import logging
 import multiprocessing as mp
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Track active multiprocessing pools so they can be terminated on shutdown.
+_active_pools: set[mp.pool.Pool] = set()
+_pool_lock = threading.Lock()
 
 
 @dataclass
@@ -97,11 +102,19 @@ class WorkerPool:
         # Use spawn context for cross-platform safety
         ctx = mp.get_context("spawn")
 
-        with ctx.Pool(processes=self.worker_count) as pool:
+        pool = ctx.Pool(processes=self.worker_count)
+        with _pool_lock:
+            _active_pools.add(pool)
+        try:
             for result in pool.imap_unordered(_worker_process_document, doc_items):
                 results.append(result)
                 if on_result:
                     on_result(result)
+        finally:
+            pool.terminate()
+            pool.join()
+            with _pool_lock:
+                _active_pools.discard(pool)
 
         return results
 
@@ -123,3 +136,17 @@ class WorkerPool:
                 on_result(result)
 
         return results
+
+
+def shutdown_all_pools() -> None:
+    """Terminate all active worker pools. Called during application shutdown."""
+    with _pool_lock:
+        pools = list(_active_pools)
+    for pool in pools:
+        try:
+            pool.terminate()
+            pool.join(timeout=5)
+        except Exception:
+            logger.warning("Failed to terminate a worker pool", exc_info=True)
+    with _pool_lock:
+        _active_pools.clear()

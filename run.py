@@ -7,6 +7,7 @@ and opens the default browser to the dashboard.
 
 from __future__ import annotations
 
+import multiprocessing
 import sys
 import threading
 import time
@@ -27,6 +28,9 @@ def open_browser(url: str, delay: float = 1.5) -> None:
 
 
 def main() -> None:
+    # Required for PyInstaller on Windows — prevents infinite process spawn
+    multiprocessing.freeze_support()
+
     # Ensure data directories exist
     settings.ensure_dirs()
 
@@ -41,12 +45,23 @@ def main() -> None:
     if "--no-browser" not in sys.argv:
         open_browser(url)
 
-    uvicorn.run(
-        "backend.api.main:app",
-        host=settings.host,
-        port=settings.port,
-        log_level="info",
-    )
+    # In frozen mode (PyInstaller), string-based app import fails —
+    # pass the app object directly instead.
+    if getattr(sys, "frozen", False):
+        from backend.api.main import app
+        uvicorn.run(
+            app,
+            host=settings.host,
+            port=settings.port,
+            log_level="info",
+        )
+    else:
+        uvicorn.run(
+            "backend.api.main:app",
+            host=settings.host,
+            port=settings.port,
+            log_level="info",
+        )
 
 
 if __name__ == "__main__":

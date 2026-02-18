@@ -40,7 +40,22 @@ def startup() -> None:
     db.initialize()
 
 
-# Serve the built frontend if it exists
-_frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+@app.on_event("shutdown")
+def shutdown() -> None:
+    """Terminate any active worker pools so child processes don't hold the port."""
+    from backend.processing.worker_pool import shutdown_all_pools
+
+    shutdown_all_pools()
+
+
+# Serve the built frontend if it exists.
+# In frozen mode (PyInstaller), assets are under sys._MEIPASS.
+import sys as _sys
+
+if getattr(_sys, "frozen", False):
+    _frontend_dist = Path(_sys._MEIPASS) / "frontend" / "dist"
+else:
+    _frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
 if _frontend_dist.is_dir():
     app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
