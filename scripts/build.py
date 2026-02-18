@@ -25,9 +25,11 @@ DIST = ROOT / "dist"
 def build_frontend() -> None:
     """Build the React frontend."""
     print("=== Building frontend ===")
+    # shell=True needed on Windows so that npm.cmd is resolved via PATH
+    use_shell = platform.system() == "Windows"
     if not (FRONTEND / "node_modules").is_dir():
-        subprocess.run(["npm", "install"], cwd=str(FRONTEND), check=True)
-    subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND), check=True)
+        subprocess.run(["npm", "install"], cwd=str(FRONTEND), check=True, shell=use_shell)
+    subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND), check=True, shell=use_shell)
     print("Frontend built successfully.")
 
 
@@ -62,6 +64,33 @@ def build_executable() -> None:
     entry = ROOT / "run.py"
     sep = os.pathsep  # ';' on Windows, ':' on Linux
 
+    # Exclude spaCy tests and unnecessary language data to keep build fast/small
+    excludes = [
+        "spacy.tests",
+        "spacy.lang.af", "spacy.lang.am", "spacy.lang.ar", "spacy.lang.az",
+        "spacy.lang.bg", "spacy.lang.bn", "spacy.lang.ca", "spacy.lang.cs",
+        "spacy.lang.cy", "spacy.lang.da", "spacy.lang.de", "spacy.lang.dsb",
+        "spacy.lang.el", "spacy.lang.es", "spacy.lang.et", "spacy.lang.eu",
+        "spacy.lang.fa", "spacy.lang.fi", "spacy.lang.fo", "spacy.lang.fr",
+        "spacy.lang.ga", "spacy.lang.grc", "spacy.lang.gu", "spacy.lang.he",
+        "spacy.lang.hi", "spacy.lang.hr", "spacy.lang.hsb", "spacy.lang.hu",
+        "spacy.lang.hy", "spacy.lang.id", "spacy.lang.is", "spacy.lang.it",
+        "spacy.lang.ja", "spacy.lang.kn", "spacy.lang.ko", "spacy.lang.la",
+        "spacy.lang.lb", "spacy.lang.lt", "spacy.lang.lv", "spacy.lang.mk",
+        "spacy.lang.ml", "spacy.lang.mr", "spacy.lang.nb", "spacy.lang.ne",
+        "spacy.lang.nl", "spacy.lang.nn", "spacy.lang.pl", "spacy.lang.pt",
+        "spacy.lang.ro", "spacy.lang.ru", "spacy.lang.sa", "spacy.lang.si",
+        "spacy.lang.sk", "spacy.lang.sl", "spacy.lang.sq", "spacy.lang.sr",
+        "spacy.lang.sv", "spacy.lang.ta", "spacy.lang.te", "spacy.lang.th",
+        "spacy.lang.ti", "spacy.lang.tl", "spacy.lang.tn", "spacy.lang.tr",
+        "spacy.lang.tt", "spacy.lang.uk", "spacy.lang.ur", "spacy.lang.vi",
+        "spacy.lang.yo", "spacy.lang.zh",
+        "thinc.tests",
+        "pydantic.deprecated",
+        # Not needed at runtime
+        "pytest", "hypothesis", "IPython", "notebook", "tkinter",
+    ]
+
     cmd = [
         sys.executable,
         "-m",
@@ -73,13 +102,18 @@ def build_executable() -> None:
         "--clean",
         # ── Frontend ──────────────────────────────────────────────────────
         f"--add-data={frontend_dist}{sep}frontend/dist",
-        # ── Backend package ───────────────────────────────────────────────
-        f"--add-data={BACKEND}{sep}backend",
-        # ── spaCy model + core ────────────────────────────────────────────
+        # ── spaCy model data ─────────────────────────────────────────────
         "--collect-data=en_core_web_lg",
-        "--collect-all=spacy",
-        "--collect-all=thinc",
+        "--collect-data=spacy",
+        "--collect-data=thinc",
         "--hidden-import=en_core_web_lg",
+        # spaCy core modules (not --collect-all which pulls in tests)
+        "--hidden-import=spacy",
+        "--hidden-import=spacy.lang.en",
+        "--hidden-import=spacy.pipeline",
+        "--hidden-import=spacy.tokenizer",
+        "--hidden-import=spacy.vocab",
+        "--hidden-import=spacy.util",
         # spaCy C-extension dependencies
         "--hidden-import=cymem",
         "--hidden-import=cymem.cymem",
@@ -91,18 +125,25 @@ def build_executable() -> None:
         "--hidden-import=blis.py",
         "--hidden-import=srsly",
         "--hidden-import=srsly.msgpack",
+        "--hidden-import=srsly.json_api",
         "--hidden-import=catalogue",
         "--hidden-import=confection",
+        "--hidden-import=thinc",
+        "--hidden-import=thinc.api",
         "--hidden-import=thinc.backends.numpy_ops",
+        "--hidden-import=thinc.shims",
         # ── Presidio ─────────────────────────────────────────────────────
         "--collect-data=presidio_analyzer",
         "--hidden-import=presidio_analyzer",
         "--hidden-import=presidio_anonymizer",
         # ── Pydantic (FastAPI dependency) ─────────────────────────────────
-        "--collect-all=pydantic",
+        "--collect-data=pydantic",
         "--hidden-import=pydantic",
+        "--hidden-import=pydantic.deprecated.decorator",
+        "--hidden-import=pydantic_core",
         # ── ReportLab ─────────────────────────────────────────────────────
         "--collect-data=reportlab",
+        "--hidden-import=reportlab",
         # ── Uvicorn ───────────────────────────────────────────────────────
         "--hidden-import=uvicorn",
         "--hidden-import=uvicorn.logging",
@@ -130,7 +171,6 @@ def build_executable() -> None:
         "--hidden-import=multiprocessing.process",
         "--hidden-import=multiprocessing.spawn",
         "--hidden-import=multiprocessing.popen_spawn_win32",
-        "--hidden-import=multiprocessing.popen_spawn_posix",
         "--hidden-import=multiprocessing.reduction",
         # ── OCR dependencies ──────────────────────────────────────────────
         "--hidden-import=pytesseract",
@@ -138,7 +178,15 @@ def build_executable() -> None:
         "--hidden-import=PIL.Image",
         # ── PDF handling ──────────────────────────────────────────────────
         "--hidden-import=fitz",
+        "--hidden-import=pymupdf",
+        # ── Async support ─────────────────────────────────────────────────
+        "--hidden-import=aiofiles",
+        "--hidden-import=aiofiles.os",
     ]
+
+    # Add excludes
+    for mod in excludes:
+        cmd.append(f"--exclude-module={mod}")
 
     # ── Bundle Tesseract OCR if found ─────────────────────────────────────
     tesseract_dir = find_tesseract()
@@ -163,32 +211,44 @@ def verify_build() -> bool:
         return False
 
     exe_name = "RedactQC.exe" if platform.system() == "Windows" else "RedactQC"
-    checks = {
-        "Executable": build_dir / exe_name,
-        "Frontend": build_dir / "frontend" / "dist" / "index.html",
-    }
+    # PyInstaller 6.x puts --add-data assets under _internal/
+    search_dirs = [build_dir, build_dir / "_internal"]
 
-    # Check for spaCy model data (nested under _internal on some PyInstaller versions)
+    all_ok = True
+
+    # Check executable
+    exe_path = build_dir / exe_name
+    if exe_path.exists():
+        print(f"  [OK] Executable: {exe_name}")
+    else:
+        print(f"  [MISSING] Executable: {exe_name}")
+        all_ok = False
+
+    # Check frontend (could be at top level or under _internal)
+    frontend_found = False
+    for search_dir in search_dirs:
+        candidate = search_dir / "frontend" / "dist" / "index.html"
+        if candidate.exists():
+            print(f"  [OK] Frontend: {candidate.relative_to(build_dir)}")
+            frontend_found = True
+            break
+    if not frontend_found:
+        print("  [MISSING] Frontend: frontend/dist/index.html")
+        all_ok = False
+
+    # Check for spaCy model data
     spacy_found = False
-    for search_dir in [build_dir, build_dir / "_internal"]:
+    for search_dir in search_dirs:
         if list(search_dir.rglob("en_core_web_lg/meta.json")):
             spacy_found = True
             break
 
     # Check for Presidio config
     presidio_found = False
-    for search_dir in [build_dir, build_dir / "_internal"]:
+    for search_dir in search_dirs:
         if list(search_dir.rglob("presidio_analyzer/conf*")):
             presidio_found = True
             break
-
-    all_ok = True
-    for name, path in checks.items():
-        if path.exists():
-            print(f"  [OK] {name}: {path.relative_to(build_dir)}")
-        else:
-            print(f"  [MISSING] {name}: expected at {path.relative_to(build_dir)}")
-            all_ok = False
 
     if spacy_found:
         print("  [OK] spaCy model (en_core_web_lg)")
