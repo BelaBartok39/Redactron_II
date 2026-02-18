@@ -50,6 +50,10 @@ export const api = {
     return request(`/batches/${id}`, { method: 'DELETE' });
   },
 
+  deleteAllBatches(): Promise<void> {
+    return request('/batches', { method: 'DELETE' });
+  },
+
   // Documents
   getDocuments(
     batchId: string,

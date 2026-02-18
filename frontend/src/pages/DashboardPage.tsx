@@ -85,6 +85,25 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [activeBatchId, loadData]);
 
+  const handleDeleteBatch = useCallback((id: string) => {
+    setBatches((prev) => prev.filter((b) => b.id !== id));
+    // Refresh stats since counts changed
+    api.getStats().then(setStats).catch(() => {});
+    api.getPiiTypes().then(setPiiTypes).catch(() => {});
+  }, []);
+
+  const handleClearAll = async () => {
+    if (!confirm('Delete ALL batches, documents, and findings? This cannot be undone.')) {
+      return;
+    }
+    try {
+      await api.deleteAllBatches();
+      loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear data');
+    }
+  };
+
   const handleStartScan = async () => {
     if (!scanPath.trim()) return;
     setScanning(true);
@@ -152,9 +171,17 @@ export default function DashboardPage() {
             className="btn btn-primary"
             onClick={() => setShowScanDialog(true)}
             disabled={scanning}
-            style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }}
+            style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }}
           >
             {scanning ? 'Scan in Progress...' : 'New Scan'}
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={handleClearAll}
+            disabled={scanning || batches.length === 0}
+            style={{ width: '100%', justifyContent: 'center', marginBottom: 16 }}
+          >
+            Clear All Data
           </button>
           {activeBatchId && batches.find((b) => b.id === activeBatchId) && (() => {
             const active = batches.find((b) => b.id === activeBatchId)!;
@@ -189,7 +216,7 @@ export default function DashboardPage() {
           </p>
         ) : (
           batches.slice(0, 10).map((batch) => (
-            <BatchCard key={batch.id} batch={batch} />
+            <BatchCard key={batch.id} batch={batch} onDeleted={handleDeleteBatch} />
           ))
         )}
       </div>

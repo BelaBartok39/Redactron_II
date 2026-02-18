@@ -1,4 +1,6 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { api } from '../api/client';
 import type { Batch } from '../types';
 
 function statusBadgeClass(status: string): string {
@@ -10,9 +12,36 @@ function statusBadgeClass(status: string): string {
   }
 }
 
-export default function BatchCard({ batch }: { batch: Batch }) {
+interface BatchCardProps {
+  batch: Batch;
+  onDeleted?: (id: string) => void;
+}
+
+export default function BatchCard({ batch, onDeleted }: BatchCardProps) {
+  const navigate = useNavigate();
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm(`Delete batch "${batch.name}"? This removes all its documents and findings.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.deleteBatch(batch.id);
+      onDeleted?.(batch.id);
+    } catch {
+      setDeleting(false);
+    }
+  };
+
   return (
-    <Link to={`/batches/${batch.id}`} className="batch-card">
+    <div
+      className="batch-card"
+      style={{ cursor: 'pointer', position: 'relative' }}
+      onClick={() => navigate(`/batches/${batch.id}`)}
+    >
       <div className="batch-card-info">
         <span className="batch-card-name">{batch.name}</span>
         <div className="batch-card-meta">
@@ -34,7 +63,20 @@ export default function BatchCard({ batch }: { batch: Batch }) {
           <span className="num">{batch.docs_with_findings}</span>
           <span className="label">With Findings</span>
         </div>
+        <button
+          className="btn btn-secondary"
+          onClick={handleDelete}
+          disabled={deleting}
+          style={{
+            padding: '4px 10px',
+            fontSize: '0.75rem',
+            alignSelf: 'center',
+            marginLeft: 8,
+          }}
+        >
+          {deleting ? '...' : 'Delete'}
+        </button>
       </div>
-    </Link>
+    </div>
   );
 }

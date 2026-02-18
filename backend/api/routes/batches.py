@@ -147,3 +147,12 @@ def delete_batch(batch_id: str) -> dict[str, str]:
         # CASCADE handles documents and findings
         conn.execute("DELETE FROM batches WHERE id = ?", (batch_id,))
     return {"status": "deleted", "batch_id": batch_id}
+
+
+@router.delete("/batches")
+def delete_all_batches() -> dict[str, str]:
+    """Delete all batches, documents, and findings."""
+    with db.transaction() as conn:
+        count = conn.execute("SELECT COUNT(*) as cnt FROM batches").fetchone()["cnt"]
+        conn.execute("DELETE FROM batches")
+    return {"status": "deleted", "count": str(count)}
