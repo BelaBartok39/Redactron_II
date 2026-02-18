@@ -60,6 +60,28 @@ CUSTOM_RECOGNIZERS = [
 ]
 
 
+def _patch_spacy_for_frozen():
+    """Monkey-patch spaCy to work inside a PyInstaller frozen app.
+
+    spaCy's ``is_same_func`` uses ``inspect.getsourcelines()`` to compare
+    pipeline factory functions, but source code is unavailable in a frozen
+    bundle.  We patch it to fall back gracefully instead of raising OSError.
+    """
+    import spacy.util
+
+    _original = spacy.util.is_same_func
+
+    def _safe_is_same_func(func1, func2):
+        try:
+            return _original(func1, func2)
+        except OSError:
+            # Source unavailable in frozen app — assume same to avoid
+            # spurious duplicate-factory warnings.
+            return True
+
+    spacy.util.is_same_func = _safe_is_same_func
+
+
 def _load_spacy_model():
     """Load the spaCy NER model.
 
@@ -69,6 +91,8 @@ def _load_spacy_model():
     re-launches the entire exe instead of pip.
     """
     if getattr(sys, "frozen", False):
+        _patch_spacy_for_frozen()
+
         bundle_dir = Path(sys._MEIPASS)
         model_base = bundle_dir / "en_core_web_lg"
         if model_base.is_dir():
@@ -96,7 +120,7 @@ def build_analyzer() -> AnalyzerEngine:
     nlp_engine = SpacyNlpEngine(
         models=[{"lang_code": "en", "model_name": "en_core_web_lg"}],
     )
-    nlp_engine.nlp["en"] = nlp
+    nlp_engine.nlp = {"en": nlp}
 
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers()

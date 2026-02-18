@@ -47,7 +47,15 @@ def start_scan(req: ScanRequest, background_tasks: BackgroundTasks) -> BatchSumm
     if not folder.is_dir():
         raise HTTPException(status_code=400, detail=f"Directory not found: {req.source_path}")
 
-    pdf_files = sorted(folder.glob("*.pdf")) + sorted(folder.glob("*.PDF"))
+    # Glob both cases, then deduplicate — on Windows the FS is case-insensitive
+    # so *.pdf and *.PDF return the same files.
+    seen: set[Path] = set()
+    pdf_files: list[Path] = []
+    for f in sorted(folder.glob("*.pdf")) + sorted(folder.glob("*.PDF")):
+        resolved = f.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            pdf_files.append(f)
     if not pdf_files:
         raise HTTPException(status_code=400, detail="No PDF files found in the specified folder.")
 
